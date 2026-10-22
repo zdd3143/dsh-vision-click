@@ -1,9 +1,9 @@
 {
   "name": "dsh-vision-click",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "private": true,
   "type": "module",
-  "description": "只靠鼠标与键盘完成任务：截图 + Windows OCR 定位文字 → 真实点击/拖动/滚轮/输入 → 像素与文字双重复核。F6+F7 急停。",
+  "description": "按界面文字操作 Windows：OCR 定位 + 鼠标（点击/双击/长按/悬停/拖动/滚轮）+ 键盘（键入/组合键），每个动作自动复核像素与文字变化，F6+F7 急停。",
   "license": "MIT",
   "keywords": [
     "dsh",
@@ -18,7 +18,7 @@
   ],
   "meta": {
     "title": "视觉点击（OCR 定位 / 鼠标 + 键盘）",
-    "description": "给助手一双手和一副键盘：按界面上的文字精确定位并点击/拖动/滚轮/键入，动作后自动比对画面与文字变化。"
+    "description": "按界面上的文字操作 Windows：截图后由系统 OCR 定位，可左/右/中键点击、双击、长按、悬停、拖动、滚轮、键入文字与组合键；每个动作后自动比对像素与文字，报告是否真的生效。F6+F7 随时急停。"
   },
   "icon": "./icon.svg",
   "exports": {

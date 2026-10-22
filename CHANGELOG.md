@@ -3,6 +3,14 @@
 所有值得注意的变更都记在这里。格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## [1.0.1] - 2026-10-22
+
+### 变更
+
+- 完善插件显示元数据：`meta.title` / `meta.description`（`package.json` 与 `locale/zh.json`、`locale/en.json`）
+  现在完整描述「看 / 动 / 验 / 停 / 批」五类能力，插件列表里可直接读到功能说明。
+- README 增加「功能描述」一节。
+
 ## [1.0.0] - 2026-10-22
 
 首个可用版本。
