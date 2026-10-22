@@ -1,0 +1,52 @@
+{
+  "name": "dsh-vision-click",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "只靠鼠标与键盘完成任务：截图 + Windows OCR 定位文字 → 真实点击/拖动/滚轮/输入 → 像素与文字双重复核。F6+F7 急停。",
+  "license": "MIT",
+  "keywords": [
+    "dsh",
+    "deepseek-harness",
+    "plugin",
+    "gui-agent",
+    "computer-use",
+    "ocr",
+    "windows",
+    "automation",
+    "ui-tars"
+  ],
+  "meta": {
+    "title": "视觉点击（OCR 定位 / 鼠标 + 键盘）",
+    "description": "给助手一双手和一副键盘：按界面上的文字精确定位并点击/拖动/滚轮/键入，动作后自动比对画面与文字变化。"
+  },
+  "icon": "./icon.svg",
+  "exports": {
+    ".": "./index.js",
+    "./package.json": "./package.json",
+    "./locale/*.json": "./locale/*.json"
+  },
+  "files": [
+    "index.js",
+    "cordis.patch.yml",
+    "scripts/agent.ps1",
+    "scripts/stop-watcher.ps1",
+    "scripts/build-ocr.ps1",
+    "native/DshOcr.cs",
+    "native/DshOcr.dll",
+    "locale/*.json",
+    "icon.svg",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE",
+    "docs/*.md"
+  ],
+  "scripts": {
+    "build:ocr": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-ocr.ps1",
+    "test": "node tests/run-click-test.mjs",
+    "test:window": "powershell -NoProfile -ExecutionPolicy Bypass -File tests/target-window.ps1"
+  },
+  "dsh": {
+    "bundle": { "patch": "./cordis.patch.yml" }
+  }
+}

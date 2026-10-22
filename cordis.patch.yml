@@ -1,0 +1,26 @@
+# dsh-vision-click bundle patch.
+#
+# Adds one Host plugin row that registers the gui_* tools.
+#
+# SAFETY MODEL (read before editing):
+#   * Every click is either resolved on a frame captured inside the same call
+#     (target mode), or requires a frame younger than maxCaptureAgeMs (point
+#     mode). No blind clicking on stale pictures.
+#   * F6+F7 pressed together is handled by a SEPARATE watchdog process, not by
+#     the agent loop. It writes a stop flag, kills the input daemon, releases
+#     every mouse button and modifier, and the plugin then cancels the running
+#     turn. A stopped plugin refuses all input until gui_rearm is called.
+#   * allowControl is the user's switch. Set it to false to disable capture and
+#     clicking entirely; the tools then refuse and explain why.
+#
+# ASCII-only comments on purpose: the plugin manager rewrites installed
+# manifests in the system codepage, so non-ASCII comments come back garbled.
+- insert:
+    - id: vision-click
+      name: 'dsh-vision-click'
+      config:
+        allowControl: true
+        emergencyHotkey: 'F6+F7'
+        cancelTurnOnStop: true
+        ocrScale: 1
+        maxActionsPerMinute: 60

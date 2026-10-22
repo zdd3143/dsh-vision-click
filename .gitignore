@@ -1,0 +1,20 @@
+# dependencies / build output
+node_modules/
+dist/
+
+# runtime artifacts
+*.log
+tests/last-run.txt
+tests/last-run.txt.err
+.ui-capture/
+*.mp4
+
+# OS noise
+Thumbs.db
+Desktop.ini
+.DS_Store
+
+# editors
+.vscode/
+.idea/
+*.swp

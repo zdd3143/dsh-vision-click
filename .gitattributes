@@ -1,0 +1,16 @@
+# Normalize line endings on commit, but keep the files as they are on checkout:
+# the PowerShell scripts are UTF-8 with BOM + CRLF, which Windows PowerShell 5.1 needs.
+* text=auto
+*.ps1 text eol=crlf
+*.cs  text eol=crlf
+*.js  text eol=lf
+*.mjs text eol=lf
+*.json text eol=lf
+*.yml text eol=lf
+*.md  text eol=lf
+*.svg text eol=lf
+
+# Binaries
+*.dll binary
+*.png binary
+*.ico binary

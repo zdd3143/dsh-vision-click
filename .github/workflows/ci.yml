@@ -1,0 +1,59 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  static:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Node syntax check
+        run: node --check index.js
+
+      - name: Validate JSON manifests
+        run: |
+          node -e "for (const f of ['package.json','locale/zh.json','locale/en.json']) { JSON.parse(require('fs').readFileSync(f,'utf8')); console.log('ok', f) }"
+
+      - name: Parse PowerShell scripts
+        shell: powershell
+        run: |
+          $failed = $false
+          Get-ChildItem -Recurse -Include *.ps1 | ForEach-Object {
+            try {
+              $null = [scriptblock]::Create([System.IO.File]::ReadAllText($_.FullName))
+              Write-Host "ok $($_.Name)"
+            } catch {
+              Write-Host "FAIL $($_.Name): $($_.Exception.Message)"
+              $failed = $true
+            }
+          }
+          if ($failed) { exit 1 }
+
+      - name: PowerShell scripts keep their UTF-8 BOM
+        shell: powershell
+        run: |
+          $bad = @()
+          Get-ChildItem -Recurse -Include *.ps1 | ForEach-Object {
+            $bytes = [System.IO.File]::ReadAllBytes($_.FullName)
+            if (-not ($bytes.Length -ge 3 -and $bytes[0] -eq 0xEF -and $bytes[1] -eq 0xBB -and $bytes[2] -eq 0xBF)) {
+              $bad += $_.Name
+            }
+          }
+          if ($bad.Count -gt 0) { Write-Host "missing BOM: $($bad -join ', ')"; exit 1 }
+          Write-Host 'all scripts have BOM'
+
+      # The helper wraps WinRT OCR; rebuilding it needs the .NET Framework csc
+      # and the Windows SDK metadata. Not every runner image has both, so this
+      # step is informational: the DLL is committed and used as-is.
+      - name: Rebuild OCR helper (informational)
+        shell: powershell
+        continue-on-error: true
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-ocr.ps1

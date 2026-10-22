@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Vision click (OCR targeting, mouse + keyboard)",
+    "description": "Find on-screen text with Windows OCR, then click, drag, scroll or type. Every action is verified against the frame. F6+F7 stops instantly."
+  }
+}
