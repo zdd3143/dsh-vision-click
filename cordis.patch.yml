@@ -19,7 +19,8 @@
     - id: vision-click
       name: 'dsh-vision-click'
       config:
-        allowControl: true
+        # Screen control stays OFF until the user allows it (/vision arm or this flag).
+        allowControl: false
         emergencyHotkey: 'F6+F7'
         cancelTurnOnStop: true
         ocrScale: 1

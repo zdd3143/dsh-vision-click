@@ -44,7 +44,7 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 const CONFIG_FIELDS = {
   /** The user's switch. false = no capture, no clicks, full stop. */
-  allowControl: { type: 'boolean', default: true },
+  allowControl: { type: 'boolean', default: false },
   /** Emergency stop combo, VK names joined by '+'. */
   emergencyHotkey: { type: 'string', default: 'F6+F7' },
   /** Cancel the running agent turn when the combo fires. */
@@ -226,6 +226,8 @@ export function apply(ctx, config = {}) {
 
   const state = {
     armed: true,
+    /** User consent for screen capture + input; only /vision arm (or allowControl) sets it. */
+    authorized: false,
     haltedAt: 0,
     haltReason: '',
     lastCapture: null,
@@ -531,9 +533,12 @@ export function apply(ctx, config = {}) {
   // ------------------------------------------------------------------ guards
 
   function assertControlAllowed() {
-    if (!settings.allowControl) {
-      throw new Error('视觉点击已被用户在插件配置里关闭（allowControl: false），本工具不会截屏也不会动鼠标。');
-    }
+    if (settings.allowControl || state.authorized) return;
+    throw new Error(
+      '屏幕控制尚未由用户授权：不会截屏，也不会移动鼠标。\n' +
+        '这是默认状态。需要用户在本会话里执行 /vision arm（或在插件设置里打开 allowControl）之后，' +
+        '这些工具才会工作；用户可以用 /vision off 随时收回。',
+    );
   }
 
   function assertArmed() {
@@ -3147,6 +3152,7 @@ export function apply(ctx, config = {}) {
         properties: {
           ok: { type: 'boolean' },
           armed: { type: 'boolean' },
+          authorized: { type: 'boolean' },
           haltReason: { type: 'string' },
           allowControl: { type: 'boolean' },
           hotkey: { type: 'string' },
@@ -3180,6 +3186,7 @@ export function apply(ctx, config = {}) {
       const age = state.lastCapture ? Date.now() - state.lastCapture.at : null;
       const lines = [
         `状态：${state.armed ? 'armed（可用）' : `已锁定，原因：${state.haltReason || settings.emergencyHotkey}`}`,
+        `屏幕控制授权：${state.authorized || settings.allowControl ? '已授权' : `未授权（用户需执行 /vision arm，或把 allowControl 设为 true）`}`,
         `急停快捷键：${settings.emergencyHotkey}（看门狗${watcherAlive ? '运行中' : '未运行'}）`,
         `输入/识图进程：${daemon?.alive ? '运行中' : '未运行'}`,
         `文字识别：${state.ocr.available ? `可用（${(state.ocr.languages ?? []).join(', ') || '默认语言'}）` : `不可用${state.ocr.error ? `：${state.ocr.error}` : ''}`}`,
@@ -3191,6 +3198,7 @@ export function apply(ctx, config = {}) {
       return {
         ok: true,
         armed: state.armed,
+        authorized: state.authorized || settings.allowControl,
         haltReason: state.haltReason,
         allowControl: settings.allowControl,
         hotkey: settings.emergencyHotkey,
@@ -3266,8 +3274,48 @@ export function apply(ctx, config = {}) {
 
   // ------------------------------------------------------------------ lifecycle
 
+  // The user's consent switch. /vision arm is a user command: it never becomes
+  // a model message, and the agent cannot run it on its own behalf.
+  function registerConsentCommand() {
+    const commands = (() => {
+      try {
+        return typeof ctx.get === 'function' ? ctx.get('commands') : null;
+      } catch {
+        return null;
+      }
+    })();
+    if (!commands || typeof commands.register !== 'function') return null;
+
+    const describe = () =>
+      state.authorized
+        ? '屏幕控制：已授权（本会话）。用户可用 /vision off 收回。'
+        : '屏幕控制：未授权。所有截屏与鼠标工具都会被拒绝，直到用户执行 /vision arm。';
+
+    return commands.register({
+      name: 'vision',
+      description: 'dsh-vision-click：授权或收回屏幕控制（arm / off / status）',
+      input: { hint: 'arm | off | status' },
+      handler: ({ rawInput }) => {
+        const action = String(rawInput ?? '').trim().toLowerCase() || 'status';
+        if (action === 'arm' || action === 'on' || action === 'allow') {
+          state.authorized = true;
+          audit({ action: 'consent', granted: true });
+          return { kind: 'success', text: '已授权：现在可以截屏并把鼠标移出本窗口。随时用 /vision off 收回。' };
+        }
+        if (action === 'off' || action === 'disarm' || action === 'revoke') {
+          state.authorized = false;
+          audit({ action: 'consent', granted: false });
+          return { kind: 'success', text: '已收回屏幕控制：后续的截屏与鼠标工具都会被拒绝。' };
+        }
+        if (action === 'status') return { kind: 'success', text: describe() };
+        return { kind: 'error', text: `未知参数「${action}」：可用 /vision arm、/vision off、/vision status。` };
+      },
+    });
+  }
+
   ctx.effect(() => {
     const disposers = tools.map((tool) => ctx.tools.register(tool));
+    const disposeCommand = registerConsentCommand();
     startWatcher();
     ctx.logger?.info?.(
       `[vision-click] 已注册 ${tools.length} 个工具；急停 ${settings.emergencyHotkey}；OCR ${OCR_DLL}；目录 ${runtimeDir}`,
@@ -3288,6 +3336,11 @@ export function apply(ctx, config = {}) {
         daemon?.child?.unref?.();
       } catch {
         /* already gone */
+      }
+      try {
+        disposeCommand?.();
+      } catch {
+        /* commands service went away first */
       }
       for (const dispose of disposers) {
         try {

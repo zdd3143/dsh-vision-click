@@ -124,6 +124,9 @@ Windows OCR 在整屏 2560×1600 上很不稳定：小字会被合并成一行�
 
 ## 安全模型
 
+- **默认拒绝**：`allowControl` 默认 `false`。未经用户授权时，所有工具直接报错，**不截屏、不动鼠标**。
+  两种授权方式：① 在本会话执行 `/vision arm`（用户命令，不产生模型消息）；② 在插件设置里勾选 `allowControl`。
+  `/vision off` 可随时收回，`/vision status` 查看当前状态；`gui_status` 也会报告 `authorized`。
 - **F6+F7 急停**：由**独立进程**（`scripts/stop-watcher.ps1`）监视，不依赖 agent 循环。触发时依次：
   写急停标记 → 按 pid 杀掉输入进程 → 松开所有鼠标键与修饰键 → 通知插件取消当前回合。
   看门狗没运行 → 所有工具**失败即关闭**（fail-closed）：没有刹车的输入控制不能存在。
@@ -157,7 +160,7 @@ dsh plugin --profile desktop add "link:C:/path/to/dsh-vision-click"
 
 | 字段 | 默认 | 说明 |
 | --- | --- | --- |
-| `allowControl` | `true` | 用户开关；`false` 时不截屏、不输入 |
+| `allowControl` | `false` | 用户开关；默认不截屏、不输入，需显式授权 |
 | `emergencyHotkey` | `'F6+F7'` | 急停组合键 |
 | `cancelTurnOnStop` | `true` | 急停时取消当前回合 |
 | `maxWidth` | `1600` | 返回给模型的图宽（OCR 始终用原始像素） |
