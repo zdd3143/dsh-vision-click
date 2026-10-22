@@ -181,6 +181,8 @@ dsh plugin --profile desktop add "link:C:/path/to/dsh-vision-click"
 | `visionMaxWidth` | `1280` | 送模型前把窗口缩到这个宽度 |
 | `visionSnapRadius` | `0.08` | 把模型点吸附到 OCR 词框的半径（相对短边） |
 | `visionRetries` | `1` | 点了没反应时围绕模型点微调重试的次数 |
+| `visionOnDragRetry` | `true` | 拖拽没生效时，用模型重新定位两端再拖一次 |
+| `visionOnScrollRetry` | `true` | 滚动没生效时，用模型重新定位滚动区域再滚一次 |
 
 ## 目录结构
 
@@ -225,24 +227,38 @@ node tests/run-click-test.mjs                                                 # 
 31 项断言覆盖：文字索引、目标点击、重复点击、歧义拒绝、批量步骤、悬停、右键、长按、拖动、滚轮、
 键入、全选覆盖、退格、回车，以及 `gui_do` 混排键盘步骤。
 
+## OCR 的局限（重要）
+
+这个插件默认只看文字。OCR **读不到**下面这些东西：
+
+- **图标 / 图形按钮**（画布画的齿轮、工具栏图标、没有标签的按钮）；
+- **Canvas、地图、图表、视频画面**里的内容；
+- 极小字号、低对比度、艺术字、被背景图干扰的文字；
+- 某些字体下会漏掉最后一个字（实测「下一步」偶尔读成「下一」）。
+
+这些情况下只有两种出路：给 `point` 坐标（人看得见，模型看不见），或者启用视觉模型。
+**图标类控件必须靠视觉模型识别**——OCR 对它们完全无能为力，这也是这个可选后端存在的主要原因。
+
 ## 可选：本地视觉模型兜底
 
-OCR 不是万能的（图标、Canvas、艺术字、漏字）。开启后，**只在 OCR 没有候选或分数不够时**，
-把活动窗口裁出来发给本地模型（默认 UI-TARS-7B + Ollama），模型给一个 0~1000 归一化坐标，
-再**吸附**到最近的、文字相关的 OCR 词框上——语义来自模型，精度仍由 OCR 保证。
+开启后，**只在 OCR 没有候选或分数不够时**，把活动窗口裁出来发给本地模型（默认 UI-TARS-7B + Ollama），
+模型给一个 0~1000 归一化坐标，再**吸附**到最近的、文字相关的 OCR 词框上——语义来自模型，精度仍由 OCR 保证。
 
 ```yaml
 config:
   visionEnabled: true
   visionModel: ui-tars:7b
   visionMode: fallback      # fallback | always
+  visionOnDragRetry: true   # 拖拽没生效时，用模型重新定位两端再试一次
+  visionOnScrollRetry: true # 滚动没生效时，用模型重新找滚动区域再试一次
 ```
 
-`gui_click` 会在结果里标出 `source: "vision"` 与模型耗时/是否吸附成功。
+`gui_click` 会在结果里标出 `source: "vision"`、`retried` 与模型耗时/是否吸附成功；
+`gui_drag` / `gui_scroll` 会标出 `retried` 与 `source`。
 
 **默认关闭**：模型常驻约占 5~6 GB 显存，只有你显式打开才会加载；`ollama stop ui-tars:7b` 可立即卸载。
-实测一个 5 步复杂任务（含画布上的无文字图标）：仅 OCR 4/5，OCR+视觉 5/5，总耗时 8.7s → 10.6s——
-视觉只在那一步被调用，其余步骤零开销。
+实测一个 6 步复杂任务（含画布上的无文字图标、无文字的滑块拇指）：
+仅 OCR 4/6，OCR+视觉 6/6，总耗时 10.0s → 16.9s——视觉只在真正需要的那两步被调用。
 部署步骤、实测精度与坑见 [docs/VISION.md](docs/VISION.md)。
 
 ## 已知边界

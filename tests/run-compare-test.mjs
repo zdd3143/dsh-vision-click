@@ -98,6 +98,12 @@ const steps = [
     expect: '已提交',
     run: (r) => callTool(r, 'gui_click', { target: '提交' }),
   },
+  {
+    name: '拖滑块到右端（拇指无文字）',
+    expect: '滑块值',
+    run: (r) => callTool(r, 'gui_drag', { from: { target: 'the slider thumb' }, to: { target: '滑块值：0' } }),
+    visionOnly: true,
+  },
 ];
 
 async function runVariant(visionEnabled) {
@@ -130,7 +136,7 @@ async function runVariant(visionEnabled) {
     try {
       const res = await step.run(registered);
       callOk = res?.ok !== false;
-      visionUsed = res?.source === 'vision';
+      visionUsed = res?.source === 'vision' || (res?.retried ?? 0) > 0;
       if (res?.error) callError = res.error;
     } catch (error) {
       callError = String(error?.message ?? error);
@@ -178,7 +184,7 @@ for (let i = 0; i < steps.length; i++) {
   console.log(pad(steps[i].name, 34) + pad(a[i].ok ? `PASS` : 'FAIL', 8) + pad(b[i].ok ? 'PASS' : 'FAIL', 12) + (b[i].visionUsed ? 'yes' : 'no'));
 }
 const sum = (xs) => xs.reduce((acc, x) => acc + x.ms, 0);
-console.log(pad('total', 34) + pad(`${a.filter((x) => x.ok).length}/5`, 8) + pad(`${b.filter((x) => x.ok).length}/5`, 12) + '');
+console.log(pad('total', 34) + pad(`${a.filter((x) => x.ok).length}/${steps.length}`, 8) + pad(`${b.filter((x) => x.ok).length}/${steps.length}`, 12) + '');
 console.log(pad('wall time', 34) + pad(`${(sum(a) / 1000).toFixed(1)}s`, 8) + pad(`${(sum(b) / 1000).toFixed(1)}s`, 12) + '');
 
 const aFail = a.filter((x) => !x.ok).map((x) => x.name);

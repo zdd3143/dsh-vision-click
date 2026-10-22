@@ -147,6 +147,26 @@ $submit.ForeColor = [System.Drawing.Color]::FromArgb(14, 20, 32)
 $submit.Add_Click({ Set-Status '状态：已提交' })
 $form.Controls.Add($submit)
 
+# --- slider: the thumb has no text at all, so OCR cannot locate it -----------
+$track = New-Object System.Windows.Forms.TrackBar
+$track.Minimum = 0
+$track.Maximum = 100
+$track.Value = 0
+$track.TickFrequency = 10
+$track.Size = New-Object System.Drawing.Size 360, 45
+$track.Location = New-Object System.Drawing.Point 60, 500
+$track.Add_ValueChanged({
+    Set-Status ("状态：滑块值 {0}" -f $script:track.Value)
+  })
+$form.Controls.Add($track)
+
+$sliderLabel = New-Object System.Windows.Forms.Label
+$sliderLabel.Text = '滑块值：0'
+$sliderLabel.Font = New-UiFont 11 ([System.Drawing.FontStyle]::Regular)
+$sliderLabel.AutoSize = $true
+$sliderLabel.Location = New-Object System.Drawing.Point 440, 505
+$form.Controls.Add($sliderLabel)
+
 $reset = New-Object System.Windows.Forms.Button
 $reset.Text = '重置'
 $reset.Font = New-UiFont 13 ([System.Drawing.FontStyle]::Regular)
@@ -156,6 +176,8 @@ $reset.Add_Click({
     $script:drag.Left = 40
     $script:drag.Top = 120
     $script:list.ClearSelected()
+    $script:track.Value = 0
+    $script:sliderLabel.Text = '滑块值：0'
     Set-Status '状态：已重置'
   })
 $form.Controls.Add($reset)

@@ -98,6 +98,10 @@ const CONFIG_FIELDS = {
   visionSnapRadius: { type: 'number', default: 0.08 },
   /** Extra clicks around the model point when the first one changes nothing (0 disables). */
   visionRetries: { type: 'number', default: 1 },
+  /** If a drag changed nothing, re-locate both ends with the model and retry once. */
+  visionOnDragRetry: { type: 'boolean', default: true },
+  /** If a scroll changed nothing, re-locate the scrollable area with the model and retry once. */
+  visionOnScrollRetry: { type: 'boolean', default: true },
 };
 
 export const Config = {
@@ -1108,6 +1112,16 @@ export function apply(ctx, config = {}) {
     };
   }
 
+  /** Vision result (frame pixels) -> the plugin's screen-point shape. */
+  function pointFromVision(v, cap) {
+    return {
+      x: Math.round(v.frame.x),
+      y: Math.round(v.frame.y),
+      nx: v.frame.x / cap.result.width,
+      ny: v.frame.y / cap.result.height,
+    };
+  }
+
   /**
    * Snap a point to the nearest OCR word box that plausibly IS the target.
    * Snapping blindly would happily attach the point to an unrelated label that
@@ -1963,14 +1977,14 @@ export function apply(ctx, config = {}) {
     if (!spec) throw new Error(`${label} 需要 {target:"文字"} 或 {x,y}（0~1 坐标）`);
     if (spec.target) {
       const resolved = await resolveOnFrame(cap, spec, exec);
-      return { point: resolved.point, chosen: resolved.chosen, lines: resolved.lines, rect: resolved.rect };
+      return { point: resolved.point, chosen: resolved.chosen, lines: resolved.lines, rect: resolved.rect, source: resolved.source ?? 'ocr' };
     }
     const nx = Number(spec.x);
     const ny = Number(spec.y);
     if (!Number.isFinite(nx) || !Number.isFinite(ny) || nx < 0 || nx > 1 || ny < 0 || ny > 1) {
       throw new Error(`${label} 的坐标必须是 0~1 范围内的 x / y。`);
     }
-    return { point: pointToScreen(nx, ny, state.lastCapture), chosen: null, lines: [], rect: null };
+    return { point: pointToScreen(nx, ny, state.lastCapture), chosen: null, lines: [], rect: null, source: 'point' };
   }
 
   const dragTool = {
@@ -2029,6 +2043,7 @@ export function apply(ctx, config = {}) {
         additionalProperties: false,
         properties: {
           ok: { type: 'boolean' },
+          retried: { type: 'integer' },
           drag: { type: 'object', additionalProperties: true },
           from: { type: 'object', additionalProperties: true },
           to: { type: 'object', additionalProperties: true },
@@ -2080,7 +2095,7 @@ export function apply(ctx, config = {}) {
 
       await doDrag(from.point, to.point, { button, durationMs, exec });
 
-      const verified = await verify(cap, {
+      let verified = await verify(cap, {
         textCheck,
         beforeLines: [...from.lines, ...to.lines],
         exec,
@@ -2088,6 +2103,46 @@ export function apply(ctx, config = {}) {
         clickPoint: to.point,
         radius: 320,
       });
+
+      // A drag that changed nothing usually means "the grab missed the handle"
+      // (sliders, canvas objects, text-less drag handles). Ask the model where
+      // both ends are NOW and try once more, from the new frame.
+      let dragRetried = 0;
+      if (!verified.changed && settings.visionEnabled && settings.visionOnDragRetry) {
+        const base = verified.after;
+        let fromV = null;
+        let toV = null;
+        try {
+          fromV = await visionLocate(base, args?.from?.target ?? 'the element to drag', exec);
+        } catch {
+          fromV = null;
+        }
+        try {
+          toV = await visionLocate(base, args?.to?.target ?? 'where to drop it', exec);
+        } catch {
+          toV = null;
+        }
+        const from2 = fromV?.ok ? pointFromVision(fromV, base) : from.point;
+        const to2 = toV?.ok ? pointFromVision(toV, base) : to.point;
+        if (Math.hypot(to2.x - from2.x, to2.y - from2.y) >= 6) {
+          await doDrag(from2, to2, { button, durationMs, exec });
+          const retryVerified = await verify(base, {
+            textCheck,
+            beforeLines: [],
+            exec,
+            ocrRect: toV?.crop?.rect ?? to.rect ?? from.rect,
+            clickPoint: to2,
+            radius: 320,
+          });
+          dragRetried = 1;
+          if (retryVerified.changed) {
+            verified = retryVerified;
+            from.point = from2;
+            to.point = to2;
+          }
+        }
+      }
+
       const verdict = verdictText(verified, cap.result);
 
       audit({
@@ -2108,11 +2163,16 @@ export function apply(ctx, config = {}) {
         `已拖动：从 ${label(from)} 屏幕 (${from.point.x}, ${from.point.y}) ` +
           `拖到 ${label(to)} 屏幕 (${to.point.x}, ${to.point.y})` +
           `${button !== 'left' ? `（${button} 键）` : ''}，位移 ${Math.round(Math.hypot(dx, dy))}px。`,
+        dragRetried
+          ? '第一次拖拽没有生效，已用视觉模型重新定位两端并重试一次。'
+          : null,
         `核对：${verdict}`,
-      ];
+      ].filter(Boolean);
 
       return {
         ok: true,
+        retried: dragRetried,
+        source: from.source === 'vision' || to.source === 'vision' ? 'vision' : 'ocr',
         drag: {
           from: { x: from.point.x, y: from.point.y },
           to: { x: to.point.x, y: to.point.y },
@@ -2244,7 +2304,7 @@ export function apply(ctx, config = {}) {
 
       await doScroll(point, { direction, amount, horizontal, exec });
 
-      const verified = await verify(cap, {
+      let verified = await verify(cap, {
         textCheck,
         beforeLines,
         exec,
@@ -2252,6 +2312,39 @@ export function apply(ctx, config = {}) {
         clickPoint: point,
         radius: 420,
       });
+
+      // Nothing moved: either the pointer sat on a dead spot, or the list is
+      // already at its end. Ask the model where the scrollable area is now and
+      // try once at that point; if it still does not move, report "at the end".
+      let scrollRetried = 0;
+      if (!verified.changed && settings.visionEnabled && settings.visionOnScrollRetry) {
+        const after = verified.after;
+        const anchor = args?.target ?? 'the scrollable list';
+        let v = null;
+        try {
+          v = await visionLocate(after, anchor, exec);
+        } catch {
+          v = null;
+        }
+        if (v?.ok) {
+          const p2 = pointFromVision(v, after);
+          await doScroll(p2, { direction, amount, horizontal, exec });
+          const retryVerified = await verify(after, {
+            textCheck,
+            beforeLines: [],
+            exec,
+            ocrRect: v.crop.rect,
+            clickPoint: p2,
+            radius: 420,
+          });
+          scrollRetried = 1;
+          if (retryVerified.changed) {
+            verified = retryVerified;
+            point = p2;
+          }
+        }
+      }
+
       const verdict = verdictText(verified, cap.result);
 
       audit({ action: 'gui_scroll', point: [point.x, point.y], direction, amount, changed: verified.changed, agent: exec?.agent?.id });
@@ -2259,12 +2352,14 @@ export function apply(ctx, config = {}) {
       const lines = [
         `已在${chosen ? `「${chosen.text}」所在区域` : `画面 (${fmt(point.nx, 3)}, ${fmt(point.ny, 3)})`} ` +
           `向 ${direction} 滚了 ${amount} 格（屏幕 ${point.x}, ${point.y}）。`,
+        scrollRetried ? '第一次滚动没有生效，已用视觉模型重新定位滚动区域并重试一次。' : null,
         `核对：${verdict}`,
         verified.changed ? null : '没有变化：可能已经滚到头，或者这块区域本身不可滚动——先 gui_look 确认，别反复滚。',
       ].filter(Boolean);
 
       return {
         ok: true,
+        retried: scrollRetried,
         scroll: { direction, amount, horizontal, x: point.x, y: point.y },
         verify: {
           changed: verified.changed,
