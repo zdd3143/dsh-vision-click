@@ -147,6 +147,12 @@ dsh plugin --profile desktop add "link:C:/path/to/dsh-vision-click"
 或者直接把目录放进 profile 的 `dsh.profile.bundles`。插件加载后 `gui_*` 工具即可用；
 `native/DshOcr.dll` 已经随仓库提供，无需编译即可运行。
 
+> **本地开发（`link:`）插件在「插件市场 → 已安装」卡片上不会显示 `package.json` / `locale` 里的描述**：
+> 那张卡片渲染的是市场目录中的作者简介，本地插件没有目录条目（同样 `link:` 安装的
+> `dsh-desktop-control`、`dsh-ui-capture` 也是如此）。需要在卡片上也有说明时，点卡片里的
+> **「+ 添加备注」** 写一段即可 —— 备注会代替作者简介显示，只保存在本机。
+> 发布到市场后，`meta.description`（见 `locale/zh.json`）就会作为作者简介展示。
+
 ## 配置（`cordis.patch.yml` 的 `config`）
 
 | 字段 | 默认 | 说明 |
