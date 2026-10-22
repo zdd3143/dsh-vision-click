@@ -1,6 +1,6 @@
 {
   "name": "dsh-vision-click",
-  "version": "1.0.1",
+  "version": "1.1.0",
   "private": true,
   "type": "module",
   "description": "按界面文字操作 Windows：OCR 定位 + 鼠标（点击/双击/长按/悬停/拖动/滚轮）+ 键盘（键入/组合键），每个动作自动复核像素与文字变化，F6+F7 急停。",
@@ -31,11 +31,13 @@
   "icon": "./icon.svg",
   "exports": {
     ".": "./index.js",
+    "./client": "./lib/client.js",
     "./package.json": "./package.json",
     "./locale/*.json": "./locale/*.json"
   },
   "files": [
     "index.js",
+    "lib/client.js",
     "cordis.patch.yml",
     "scripts/agent.ps1",
     "scripts/stop-watcher.ps1",
@@ -55,6 +57,10 @@
     "test:window": "powershell -NoProfile -ExecutionPolicy Bypass -File tests/target-window.ps1"
   },
   "dsh": {
-    "bundle": { "patch": "./cordis.patch.yml" }
+    "bundle": { "patch": "./cordis.patch.yml" },
+    "client": {
+      "platform": "web",
+      "inject": []
+    }
   }
 }

@@ -124,8 +124,12 @@ Windows OCR 在整屏 2560×1600 上很不稳定：小字会被合并成一行�
 
 ## 安全模型
 
+- **输入框旁的开关**：composer 右侧（模型选择器左边）有一个「屏幕控制：开 / 关」按钮，
+  点一下等于执行 `/vision arm` 或 `/vision off`；状态每次都从宿主的 `/vision status` 回读，
+  不会出现「按钮显示已允许、宿主却拒绝」的情况。插件重载后出现。
 - **默认拒绝**：`allowControl` 默认 `false`。未经用户授权时，所有工具直接报错，**不截屏、不动鼠标**。
-  两种授权方式：① 在本会话执行 `/vision arm`（用户命令，不产生模型消息）；② 在插件设置里勾选 `allowControl`。
+  两种授权方式：① 点上面的开关，或在本会话执行 `/vision arm`（用户命令，不产生模型消息）；
+  ② 在插件设置里勾选 `allowControl`。
   `/vision off` 可随时收回，`/vision status` 查看当前状态；`gui_status` 也会报告 `authorized`。
 - **F6+F7 急停**：由**独立进程**（`scripts/stop-watcher.ps1`）监视，不依赖 agent 循环。触发时依次：
   写急停标记 → 按 pid 杀掉输入进程 → 松开所有鼠标键与修饰键 → 通知插件取消当前回合。

@@ -3286,10 +3286,12 @@ export function apply(ctx, config = {}) {
     })();
     if (!commands || typeof commands.register !== 'function') return null;
 
+    // SCREEN_CONTROL=on|off is a stable token: the composer switch reads it so it
+    // can never disagree with what the host will actually allow.
     const describe = () =>
-      state.authorized
-        ? '屏幕控制：已授权（本会话）。用户可用 /vision off 收回。'
-        : '屏幕控制：未授权。所有截屏与鼠标工具都会被拒绝，直到用户执行 /vision arm。';
+      state.authorized || settings.allowControl
+        ? '屏幕控制：SCREEN_CONTROL=on（已授权）。用 /vision off 可收回。'
+        : '屏幕控制：SCREEN_CONTROL=off（未授权）。所有截屏与鼠标工具都会被拒绝，直到 /vision arm。';
 
     return commands.register({
       name: 'vision',
@@ -3300,12 +3302,12 @@ export function apply(ctx, config = {}) {
         if (action === 'arm' || action === 'on' || action === 'allow') {
           state.authorized = true;
           audit({ action: 'consent', granted: true });
-          return { kind: 'success', text: '已授权：现在可以截屏并把鼠标移出本窗口。随时用 /vision off 收回。' };
+          return { kind: 'success', text: '屏幕控制：SCREEN_CONTROL=on。已授权，现在可以截屏并把鼠标移出本窗口；随时用 /vision off 收回。' };
         }
         if (action === 'off' || action === 'disarm' || action === 'revoke') {
           state.authorized = false;
           audit({ action: 'consent', granted: false });
-          return { kind: 'success', text: '已收回屏幕控制：后续的截屏与鼠标工具都会被拒绝。' };
+          return { kind: 'success', text: '屏幕控制：SCREEN_CONTROL=off。已收回，后续的截屏与鼠标工具都会被拒绝。' };
         }
         if (action === 'status') return { kind: 'success', text: describe() };
         return { kind: 'error', text: `未知参数「${action}」：可用 /vision arm、/vision off、/vision status。` };

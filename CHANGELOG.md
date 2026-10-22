@@ -3,6 +3,18 @@
 所有值得注意的变更都记在这里。格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## [1.1.0] - 2026-10-22
+
+### 新增
+
+- **输入框旁的「屏幕控制」开关**（客户端插件，`lib/client.js`）：注册在 composer 的
+  `conversation.input.right` 槽位，显示「屏幕控制：开 / 关」，点击即执行 `/vision arm` 或 `/vision off`。
+  状态由宿主的 `/vision status` 回读，开关不会与宿主实际放行状态不一致。
+- **默认拒绝**：`allowControl` 默认 `false`，未授权时不截屏、不动鼠标；授权入口只有
+  `/vision arm`（用户命令，不产生模型消息）或插件设置里的 `allowControl`。
+- `/vision status` 输出稳定的 `SCREEN_CONTROL=on|off` 机器可读标记。
+- `gui_status` 增加 `authorized` 字段。
+
 ## [1.0.1] - 2026-10-22
 
 ### 变更
