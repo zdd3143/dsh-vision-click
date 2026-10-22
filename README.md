@@ -5,7 +5,7 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-Windows%2010%2F11-blue.svg)](#已知边界)
-[![DSH Plugin](https://img.shields.io/badge/DSH-plugin-7aa2ff.svg)](https://github.com/deepseek-ai)
+[![DSH Plugin](https://img.shields.io/badge/DSH-plugin-7aa2ff.svg)](https://github.com/zdd3143/dsh-vision-click)
 
 **English TL;DR** — A DeepSeek Harness plugin that lets the agent drive Windows by sight: it screenshots the
 active window, indexes every line of text with Windows OCR, clicks/drags/scrolls/types by **target text**
@@ -140,7 +140,7 @@ Windows OCR 在整屏 2560×1600 上很不稳定：小字会被合并成一行�
 作为 DSH（DeepSeek Harness）插件，需要一个 profile：
 
 ```powershell
-git clone https://github.com/<your-name>/dsh-vision-click.git
+git clone https://github.com/zdd3143/dsh-vision-click.git
 dsh plugin --profile desktop add "link:C:/path/to/dsh-vision-click"
 ```
 

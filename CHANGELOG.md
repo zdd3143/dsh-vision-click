@@ -32,4 +32,5 @@
 - OCR 对极小字号/艺术字/强背景图会漏读，需要用 `point` 兜底或 `pick` 指定候选。
 - 中文为直接注入字符，不走输入法候选流程。
 
-[1.0.0]: https://github.com/<your-name>/dsh-vision-click/releases/tag/v1.0.0
+[1.0.1]: https://github.com/zdd3143/dsh-vision-click/releases/tag/v1.0.1
+[1.0.0]: https://github.com/zdd3143/dsh-vision-click/releases/tag/v1.0.0

@@ -5,6 +5,14 @@
   "type": "module",
   "description": "按界面文字操作 Windows：OCR 定位 + 鼠标（点击/双击/长按/悬停/拖动/滚轮）+ 键盘（键入/组合键），每个动作自动复核像素与文字变化，F6+F7 急停。",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/zdd3143/dsh-vision-click.git"
+  },
+  "homepage": "https://github.com/zdd3143/dsh-vision-click#readme",
+  "bugs": {
+    "url": "https://github.com/zdd3143/dsh-vision-click/issues"
+  },
   "keywords": [
     "dsh",
     "deepseek-harness",
