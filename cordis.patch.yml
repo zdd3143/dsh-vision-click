@@ -24,3 +24,8 @@
         cancelTurnOnStop: true
         ocrScale: 1
         maxActionsPerMinute: 60
+        # Optional local vision-model fallback (see docs/VISION.md).
+        # visionEnabled: true
+        # visionBaseUrl: 'http://127.0.0.1:11434'
+        # visionModel: 'ui-tars:7b'
+        # visionMode: fallback

@@ -173,6 +173,13 @@ dsh plugin --profile desktop add "link:C:/path/to/dsh-vision-click"
 | `diffCellsX` / `diffCellsY` | `24` / `16` | 全屏差分的网格 |
 | `auditLog` | `true` | 是否写审计日志 |
 | `powershellPath` | `''` | 显式指定 PowerShell |
+| `visionEnabled` | `false` | OCR 没把握时是否调用本地视觉模型（UI-TARS 等） |
+| `visionBaseUrl` | `http://127.0.0.1:11434` | Ollama 地址 |
+| `visionModel` | `ui-tars:7b` | 模型名（`ollama list` 里看到的） |
+| `visionMode` | `fallback` | `fallback` 仅兜底；`always` 总是问模型 |
+| `visionTimeoutMs` | `30000` | 单次模型调用超时 |
+| `visionMaxWidth` | `1280` | 送模型前把窗口缩到这个宽度 |
+| `visionSnapRadius` | `0.08` | 把模型点吸附到 OCR 词框的半径（相对短边） |
 
 ## 目录结构
 
@@ -217,6 +224,22 @@ node tests/run-click-test.mjs                                                 # 
 31 项断言覆盖：文字索引、目标点击、重复点击、歧义拒绝、批量步骤、悬停、右键、长按、拖动、滚轮、
 键入、全选覆盖、退格、回车，以及 `gui_do` 混排键盘步骤。
 
+## 可选：本地视觉模型兜底
+
+OCR 不是万能的（图标、Canvas、艺术字、漏字）。开启后，**只在 OCR 没有候选或分数不够时**，
+把活动窗口裁出来发给本地模型（默认 UI-TARS-7B + Ollama），模型给一个 0~1000 归一化坐标，
+再**吸附**到最近的、文字相关的 OCR 词框上——语义来自模型，精度仍由 OCR 保证。
+
+```yaml
+config:
+  visionEnabled: true
+  visionModel: ui-tars:7b
+  visionMode: fallback      # fallback | always
+```
+
+`gui_click` 会在结果里标出 `source: "vision"` 与模型耗时/是否吸附成功。
+部署步骤、实测精度与坑见 [docs/VISION.md](docs/VISION.md)。
+
 ## 已知边界
 
 - Windows 专属（WinRT OCR + Win32 输入）。
@@ -231,6 +254,7 @@ node tests/run-click-test.mjs                                                 # 
 
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — 组件、OCR 退让策略、坐标系、守护进程协议、踩过的坑
 - [docs/TESTING.md](docs/TESTING.md) — 测试怎么跑、断言了什么
+- [docs/VISION.md](docs/VISION.md) — 可选视觉模型兜底的部署与设计
 - [CHANGELOG.md](CHANGELOG.md)
 
 ## License

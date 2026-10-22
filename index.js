@@ -80,6 +80,22 @@ const CONFIG_FIELDS = {
   auditLog: { type: 'boolean', default: true },
   /** Optional explicit PowerShell path. */
   powershellPath: { type: 'string', default: '' },
+
+  // ---- optional vision-model fallback (local Ollama, e.g. UI-TARS-7B) ----
+  /** When OCR finds nothing (or is unsure), ask a local vision model where the target is. */
+  visionEnabled: { type: 'boolean', default: false },
+  /** Ollama-compatible base URL. */
+  visionBaseUrl: { type: 'string', default: 'http://127.0.0.1:11434' },
+  /** Model name as shown by `ollama list`, e.g. `ui-tars:7b`. */
+  visionModel: { type: 'string', default: 'ui-tars:7b' },
+  /** `fallback` = only when OCR is unsure; `always` = prefer the model. */
+  visionMode: { type: 'string', default: 'fallback' },
+  /** Per-call timeout for the vision model (ms). */
+  visionTimeoutMs: { type: 'number', default: 30000 },
+  /** Width the crop is downscaled to before it is sent. */
+  visionMaxWidth: { type: 'number', default: 1280 },
+  /** Snap radius (0..1 of the crop) when matching the model point to an OCR word box. */
+  visionSnapRadius: { type: 'number', default: 0.08 },
 };
 
 export const Config = {
@@ -184,6 +200,10 @@ export function apply(ctx, config = {}) {
   if (!Number.isFinite(settings.maxTypeChars) || settings.maxTypeChars < 1) settings.maxTypeChars = 2000;
   if (!Number.isFinite(settings.dragStepMs) || settings.dragStepMs < 0) settings.dragStepMs = 12;
   if (!Number.isFinite(settings.minMatchScore) || settings.minMatchScore < 0.3) settings.minMatchScore = 0.7;
+  if (!Number.isFinite(settings.visionTimeoutMs) || settings.visionTimeoutMs < 1000) settings.visionTimeoutMs = 30000;
+  if (!Number.isFinite(settings.visionMaxWidth) || settings.visionMaxWidth < 320) settings.visionMaxWidth = 1280;
+  if (!Number.isFinite(settings.visionSnapRadius) || settings.visionSnapRadius <= 0) settings.visionSnapRadius = 0.08;
+  settings.visionMode = settings.visionMode === 'always' ? 'always' : 'fallback';
   if (!Number.isFinite(settings.diffCellsX)) settings.diffCellsX = 24;
   if (!Number.isFinite(settings.diffCellsY)) settings.diffCellsY = 16;
 
@@ -810,6 +830,11 @@ export function apply(ctx, config = {}) {
           score -= Math.min(0.25, Math.sqrt(dx * dx + dy * dy) * 0.5);
         }
 
+        // A hit hugging the frame border is almost always a mis-parsed line
+        // (band offsets, window chrome, another app's tab strip). Clicking the
+        // screen edge is never what the caller meant, so drop those.
+        if (unit.cx < 0.004 || unit.cx > 0.996 || unit.cy < 0.004 || unit.cy > 0.996) continue;
+
         if (!best || score > best.score + 1e-9 || (Math.abs(score - best.score) < 1e-9 && unit.area < best.unit.area)) {
           best = { line, unit, score };
         }
@@ -994,6 +1019,224 @@ export function apply(ctx, config = {}) {
     audit({ action: 'scroll', screen: [point.x, point.y], direction, amount, horizontal, agent: exec?.agent?.id });
   }
 
+  // ---------------------------------------------------------------- vision fallback
+  //
+  // A local vision model (UI-TARS-7B via Ollama) is asked only when OCR cannot
+  // decide. The model proposes a point; we then snap it to the nearest OCR word
+  // box, so the final click is still anchored to a real, verifiable text box.
+  // Precision comes from OCR, semantics from the model.
+
+  function visionPrompt(target) {
+    return (
+      `Task: click the ${target}\n` +
+      `Output the action as: Action: click(start_box='<|box_start|>(x,y)<|box_end|>')`
+    );
+  }
+
+  /** Ask the local vision model where `target` is. Returns frame-pixel coords. */
+  async function visionLocate(cap, target, exec, rectOverride = null) {
+    const win = !rectOverride && cap.result.area === 'primary' ? await foregroundWindow(exec) : null;
+    const rect =
+      rectOverride ??
+      (win ? clampToFrame(win, cap.result) : { x: 0, y: 0, w: cap.result.width, h: cap.result.height });
+    if (!rect) throw new Error('没有可用的裁剪区域');
+
+    const outPath = path.join(shotDir, `vision-${Date.now()}-${Math.random().toString(36).slice(2, 6)}.png`);
+    const crop = await withDaemon(true, () =>
+      daemonRequest(
+        'crop',
+        { path: cap.outPath, rect, maxWidth: settings.visionMaxWidth, outPath },
+        { timeoutMs: 20000, signal: exec?.signal },
+      ),
+    );
+
+    const b64 = fs.readFileSync(crop.path).toString('base64');
+    const body = {
+      model: settings.visionModel,
+      prompt: visionPrompt(target),
+      images: [b64],
+      stream: false,
+      options: { temperature: 0, num_predict: 64, num_ctx: 4096 },
+    };
+
+    const started = Date.now();
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), settings.visionTimeoutMs);
+    let data;
+    try {
+      const res = await fetch(`${String(settings.visionBaseUrl).replace(/\/+$/, '')}/api/generate`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(body),
+        signal: controller.signal,
+      });
+      if (!res.ok) throw new Error(`vision HTTP ${res.status}`);
+      data = await res.json();
+    } catch (error) {
+      const reason = error?.name === 'AbortError' ? `vision 超时（${settings.visionTimeoutMs}ms）` : String(error?.message || error);
+      const wrapped = new Error(reason);
+      wrapped.vision = { ok: false, ms: Date.now() - started, crop };
+      throw wrapped;
+    } finally {
+      clearTimeout(timer);
+    }
+
+    const ms = Date.now() - started;
+    const text = String(data?.response ?? '').trim();
+    const match = text.match(/\(\s*(\d+(?:\.\d+)?)\s*,\s*(\d+(?:\.\d+)?)\s*\)/);
+    if (!match) return { ok: false, ms, raw: text, crop };
+
+    const nx = Number(match[1]) / 1000;
+    const ny = Number(match[2]) / 1000;
+    if (!(nx >= 0 && nx <= 1 && ny >= 0 && ny <= 1)) return { ok: false, ms, raw: text, crop };
+
+    return {
+      ok: true,
+      ms,
+      raw: text,
+      crop,
+      frame: {
+        x: crop.rect.x + nx * crop.nativeWidth,
+        y: crop.rect.y + ny * crop.nativeHeight,
+        nx,
+        ny,
+      },
+    };
+  }
+
+  /**
+   * Snap a point to the nearest OCR word box that plausibly IS the target.
+   * Snapping blindly would happily attach the point to an unrelated label that
+   * happens to be nearby (e.g. a status line containing one shared character),
+   * so a word only qualifies when its text relates to the target.
+   */
+  function snapToWords(framePoint, lines, radiusPx, target = '') {
+    const tn = normalizeText(target);
+    let nearest = null;
+    let best = null;
+    for (const line of lines) {
+      for (const word of line.words ?? []) {
+        const cx = word.px.x + word.px.w / 2;
+        const cy = word.px.y + word.px.h / 2;
+        const dist = Math.hypot(cx - framePoint.x, cy - framePoint.y);
+        if (!nearest || dist < nearest.dist) nearest = { dist, cx, cy, word, line };
+        if (dist > radiusPx) continue;
+
+        const wt = normalizeText(word.text);
+        const related = !!wt && !!tn && (tn.includes(wt) || wt.includes(tn) || similarity(wt, tn) >= 0.7);
+        if (!related) continue;
+        if (!best || dist < best.dist) best = { dist, cx, cy, word, line, related: true };
+      }
+    }
+    return { best, nearest };
+  }
+
+  /**
+   * Vision fallback: ask the local model, snap its point to an OCR word box,
+   * and return the same shape as the OCR path (plus `source: 'vision'`).
+   */
+  async function visionFallback(cap, args, exec, ctx = {}) {
+    let v;
+    try {
+      v = await visionLocate(cap, args.target, exec, ctx.winRect ?? null);
+    } catch (error) {
+      const sample = (ctx.lines ?? []).slice(0, 18).map((l) => `「${l.text}」`).join(' ');
+      throw new Error(
+        `OCR 没能确定「${args.target}」，视觉模型兜底也失败：${error?.message || error}。\n` +
+          '请确认 Ollama 在运行（ollama list 能看到模型），或调整 visionModel / visionBaseUrl。' +
+          (sample ? `\n这一帧 OCR 读到的文字：${sample}` : ''),
+      );
+    }
+
+    if (!v.ok) {
+      const sample = (ctx.lines ?? []).slice(0, 18).map((l) => `「${l.text}」`).join(' ');
+      throw new Error(
+        `OCR 和视觉模型都没有把握「${args.target}」。模型原始输出：「${v.raw || '（空）'}」（${v.ms}ms）。\n` +
+          '可以换更贴近界面原文的 target，或用 gui_look 看完整索引后给 point。' +
+          (sample ? `\n这一帧 OCR 读到的文字：${sample}` : ''),
+      );
+    }
+
+    let snapped = null;
+    let snapLines = [];
+    let snapError = '';
+    try {
+      // OCR over the banded window is the most reliable index we have — the
+      // same input gui_look uses. Fall back to the crop, then to whatever the
+      // resolver had already collected.
+      const snapRects = ctx.winRect ? bandsOf(ctx.winRect) : [v.crop.rect];
+      const parts = [];
+      for (const r of snapRects) {
+        try {
+          parts.push(...indexLines(await ocrFrame(cap.outPath, exec, 1, r)));
+        } catch {
+          /* one band failing is fine */
+        }
+      }
+      snapLines = dedupeLines([...parts, ...(ctx.lines ?? [])]);
+      const radius = settings.visionSnapRadius * Math.min(v.crop.nativeWidth, v.crop.nativeHeight);
+      const { best, nearest } = snapToWords(v.frame, snapLines, radius, args?.target);
+      snapped = best ?? null;
+      if (nearest) {
+        v.nearest = {
+          dist: Math.round(nearest.dist),
+          radius: Math.round(radius),
+          text: nearest.word.text,
+          related: !!best,
+          x: Math.round(nearest.cx),
+          y: Math.round(nearest.cy),
+        };
+      }
+    } catch (error) {
+      snapError = String(error?.message || error);
+    }
+
+    const frameX = snapped ? snapped.cx : v.frame.x;
+    const frameY = snapped ? snapped.cy : v.frame.y;
+    const point = pointToScreen(frameX / cap.result.width, frameY / cap.result.height, state.lastCapture);
+    const chosen = snapped
+      ? {
+          id: snapped.line.id,
+          text: snapped.word.text,
+          cx: frameX / cap.result.width,
+          cy: frameY / cap.result.height,
+          area: snapped.word.px.w * snapped.word.px.h,
+        }
+      : null;
+
+    audit({
+      action: 'vision_locate',
+      target: String(args?.target ?? ''),
+      snapped: !!snapped,
+      snappedText: snapped?.word?.text ?? null,
+      ms: v.ms,
+      point: [point.x, point.y],
+      agent: exec?.agent?.id,
+    });
+
+    return {
+      point,
+      chosen,
+      candidates: [],
+      lines: snapLines.length ? snapLines : ctx.lines ?? [],
+      scope: 'vision',
+      rect: v.crop.rect,
+      source: 'vision',
+      vision: {
+        ok: true,
+        model: settings.visionModel,
+        ms: v.ms,
+        raw: v.raw,
+        snapped: !!snapped,
+        snappedText: snapped?.word?.text ?? null,
+        snapDistancePx: snapped ? Math.round(snapped.dist) : null,
+        snapLines: snapLines.length,
+        snapError,
+        nearest: v.nearest ?? null,
+      },
+    };
+  }
+
   /** Capture a fresh frame and resolve a target text on it. */
   async function clickTarget(args, exec) {
     const area = args?.area === 'all' ? 'all' : 'primary';
@@ -1107,6 +1350,17 @@ export function apply(ctx, config = {}) {
       );
     }
 
+    // OCR is unsure (no candidate, or only a weak one): ask the local vision
+    // model, then snap its point onto the nearest OCR word box.
+    const needVision =
+      settings.visionEnabled &&
+      (settings.visionMode === 'always' || candidates.length === 0 || candidates[0].score < settings.minMatchScore);
+
+    if (needVision) {
+      const vision = await visionFallback(cap, args, exec, { winRect, lines, lastError });
+      if (vision) return vision;
+    }
+
     if (lines.length === 0) {
       throw new Error('这一帧没有识别到任何文字。如果目标不是文字（图标/图块），请用 gui_look 看图后给 point 坐标。');
     }
@@ -1160,6 +1414,8 @@ export function apply(ctx, config = {}) {
       lines,
       scope,
       rect,
+      source: 'ocr',
+      vision: null,
     };
   }
 
@@ -1491,6 +1747,8 @@ export function apply(ctx, config = {}) {
           ok: { type: 'boolean' },
           clicked: { type: 'object', additionalProperties: true },
           target: { type: 'object', additionalProperties: true },
+          source: { type: 'string' },
+          vision: { type: 'object', additionalProperties: true },
           candidates: { type: 'array', items: { type: 'object', additionalProperties: true } },
           verify: { type: 'object', additionalProperties: true },
           attachmentId: { type: 'string' },
@@ -1540,6 +1798,8 @@ export function apply(ctx, config = {}) {
 
       let ocrRect = null;
       let scope = 'screen';
+      let source = 'point';
+      let vision = null;
 
       if (args?.target) {
         const resolved = await clickTarget(args, exec);
@@ -1550,6 +1810,8 @@ export function apply(ctx, config = {}) {
         cap = resolved.cap;
         ocrRect = resolved.rect;
         scope = resolved.scope;
+        source = resolved.source ?? 'ocr';
+        vision = resolved.vision ?? null;
       } else if (hasPoint) {
         const frame = assertFreshFrame();
         cap = {
@@ -1588,13 +1850,18 @@ export function apply(ctx, config = {}) {
       });
 
       const verb = hover ? '悬停在' : holdMs > 0 ? `长按 ${holdMs}ms 于` : '已点击';
+      const how = source === 'vision'
+        ? `（OCR 没有把握，由视觉模型 ${vision?.model ?? ''} 定位 ${vision?.ms ?? '?'}ms` +
+          `${vision?.snapped ? `，并吸附到「${vision.snappedText}」` : '，未吸附到文字框'}）`
+        : scope === 'window'
+          ? '（在活动窗口内识别）'
+          : '';
       const lines = [
         chosen
           ? `${verb}「${chosen.text}」：它在画面 (${fmt(chosen.cx, 3)}, ${fmt(chosen.cy, 3)})，` +
             `实际${hover ? '移到' : '操作'}屏幕 (${point.x}, ${point.y})${button !== 'left' && !hover ? `（${button} 键）` : ''}` +
-            `${count > 1 && !hover ? `，连点 ${count} 次` : ''}` +
-            `${scope === 'window' ? '（在活动窗口内识别）' : ''}。`
-          : `${verb}画面 (${fmt(point.nx, 3)}, ${fmt(point.ny, 3)})，屏幕 (${point.x}, ${point.y})。`,
+            `${count > 1 && !hover ? `，连点 ${count} 次` : ''}${how}。`
+          : `${verb}画面 (${fmt(point.nx, 3)}, ${fmt(point.ny, 3)})，屏幕 (${point.x}, ${point.y})${how}。`,
         `核对：${verdict}`,
         verified.changed ? null : '下一步：先别重复同一位置。用 gui_look 看看新画面，再决定下一步。',
       ].filter(Boolean);
@@ -1613,6 +1880,10 @@ export function apply(ctx, config = {}) {
         },
         target: chosen
           ? { id: chosen.id, text: chosen.text, cx: Number(chosen.cx.toFixed(4)), cy: Number(chosen.cy.toFixed(4)) }
+          : {},
+        source,
+        vision: vision
+          ? { model: vision.model, ms: vision.ms, snapped: vision.snapped, snappedText: vision.snappedText, snapLines: vision.snapLines, snapError: vision.snapError, nearest: vision.nearest, raw: vision.raw }
           : {},
         candidates: candidates.map((c) => ({
           id: c.line.id,
@@ -2522,7 +2793,7 @@ export function apply(ctx, config = {}) {
               step: i + 1,
               kind: 'click',
               target: step.click,
-              matched: resolved.chosen.text,
+              matched: resolved.chosen?.text ?? null,
               x: resolved.point.x,
               y: resolved.point.y,
               changed: verified.changed,
@@ -2575,7 +2846,7 @@ export function apply(ctx, config = {}) {
               step: i + 1,
               kind: 'hover',
               target: step.hover,
-              matched: resolved.chosen.text,
+              matched: resolved.chosen?.text ?? null,
               changed: verified.changed,
               ok: true,
             });

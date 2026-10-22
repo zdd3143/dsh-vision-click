@@ -42,6 +42,17 @@ node tests/run-click-test.mjs
 10. **键盘**：`gui_type` 键入后屏幕上出现对应文字；`ctrl+a` + 再输入完成覆盖；退格、回车正常；
     `gui_do` 能混排键盘步骤。
 
+## 视觉模型兜底（可选）
+
+需要先跑起 Ollama 与 UI-TARS 模型（见 [VISION.md](VISION.md)）：
+
+```powershell
+node tests/run-vision-test.mjs
+```
+
+它用 `visionMode: "always"` 强制走模型路径，断言：点击成功、`source === "vision"`、
+语义型目标（"the yellow draggable block"）也能落到对应区域、吸附不会粘到无关文字。
+
 ## 常见问题
 
 - **卡住不结束**：测试会启动常驻 PowerShell 进程；脚本结束时 `dispose()` 会杀掉它们。

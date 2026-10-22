@@ -192,7 +192,7 @@ $note.AutoSize = $true
 $note.Location = New-Object System.Drawing.Point 30, 500
 $form.Controls.Add($note)
 
-# Keep this window in the foreground for the first ~90 seconds (one test run).
+# Keep this window in the foreground for ~10 minutes (several test runs).
 # Without it the harness window can still be "the active window", and OCR would
 # then read the harness transcript instead of this fixture.
 Add-Type -TypeDefinition 'using System; using System.Runtime.InteropServices; public static class VcForeground { [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hWnd); }'

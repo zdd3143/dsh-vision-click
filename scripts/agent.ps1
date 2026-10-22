@@ -358,6 +358,58 @@ function Do-Screen([string]$area, [int]$maxWidth, [string]$outPath) {
   }
 }
 
+# Crop a region out of a screenshot and optionally downscale it, for feeding a
+# vision model. Returns native crop size + the saved image size so the caller can
+# map normalized model coordinates back to screen pixels without guessing.
+function Do-Crop([string]$path, $rect, [int]$maxWidth, [string]$outPath) {
+  $src = New-Object System.Drawing.Bitmap $path
+  $crop = $null
+  try {
+    $rx = [int]$rect.x
+    $ry = [int]$rect.y
+    $rw = [int]$rect.w
+    $rh = [int]$rect.h
+    $rx = [Math]::Max(0, [Math]::Min($src.Width - 1, $rx))
+    $ry = [Math]::Max(0, [Math]::Min($src.Height - 1, $ry))
+    $rw = [Math]::Max(1, [Math]::Min($src.Width - $rx, $rw))
+    $rh = [Math]::Max(1, [Math]::Min($src.Height - $ry, $rh))
+
+    $cropRect = New-Object System.Drawing.Rectangle $rx, $ry, $rw, $rh
+    $crop = $src.Clone($cropRect, $src.PixelFormat)
+
+    $savedPath = $outPath
+    $w = $crop.Width
+    $h = $crop.Height
+    if ($maxWidth -gt 0 -and $w -gt $maxWidth) {
+      $w = $maxWidth
+      $h = [int][Math]::Round($crop.Height * ($maxWidth / [double]$crop.Width))
+      $small = New-Object System.Drawing.Bitmap $w, $h
+      $g = [System.Drawing.Graphics]::FromImage($small)
+      $g.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
+      $g.PixelOffsetMode = [System.Drawing.Drawing2D.PixelOffsetMode]::HighQuality
+      $g.DrawImage($crop, 0, 0, $w, $h)
+      $g.Dispose()
+      $small.Save($savedPath, [System.Drawing.Imaging.ImageFormat]::Png)
+      $small.Dispose()
+    } else {
+      $crop.Save($savedPath, [System.Drawing.Imaging.ImageFormat]::Png)
+    }
+
+    return @{
+      path        = $savedPath
+      width       = [int]$w
+      height      = [int]$h
+      nativeWidth = [int]$crop.Width
+      nativeHeight = [int]$crop.Height
+      rect        = @{ x = $rx; y = $ry; w = $rw; h = $rh }
+      scale       = [math]::Round($w / [double][Math]::Max(1, $crop.Width), 4)
+    }
+  } finally {
+    if ($crop) { $crop.Dispose() }
+    $src.Dispose()
+  }
+}
+
 # ------------------------------------------------------------------ diff
 
 function Do-Diff([string]$a, [string]$b, [int]$cellsX, [int]$cellsY, $rect = $null) {
@@ -572,6 +624,7 @@ while ($true) {
       }
       'cursor' { $result = @{ x = [VcInput]::CursorX; y = [VcInput]::CursorY } }
       'screen' { $result = Do-Screen ([string]$cmd.area) ([int]$cmd.maxWidth) ([string]$cmd.outPath) }
+      'crop' { $result = Do-Crop ([string]$cmd.path) $cmd.rect ([int]$cmd.maxWidth) ([string]$cmd.outPath) }
       'ocr' { $result = Invoke-Ocr ([string]$cmd.path) $cmd.rect ([double]$cmd.scale) ([string]$cmd.lang) }
       'window' { $result = Get-ForegroundWindow }
       'diff' { $result = Do-Diff ([string]$cmd.a) ([string]$cmd.b) ([int]$cmd.cellsX) ([int]$cmd.cellsY) $cmd.rect }

@@ -81,6 +81,20 @@ Windows OCR 在整屏 2560×1600 上表现不稳定：小字会被并入相邻�
 
 判定：局部或全屏有变化格（局部 maxDelta ≥ 0.03、全屏 ≥ 0.05）或文字集合有增删 → 有反应。
 
+## 视觉模型兜底（可选）
+
+默认关闭。开启后，`resolveOnFrame` 在 OCR 没有候选、或最高分低于 `minMatchScore` 时调用本地 VLM：
+
+1. `foregroundWindow()` 拿窗口矩形 → daemon `crop` 裁图并缩到 `visionMaxWidth`；
+2. POST `{visionBaseUrl}/api/generate`，prompt 为 `Task: click the <target>` + UI-TARS 动作格式；
+3. 解析 `(x,y)`（0~1000 归一化）→ 换算回截图像素：`rect.x + x/1000 * crop.nativeWidth`；
+4. **吸附**：对窗口做条带 OCR（与 `gui_look` 同源），在词级框里找「最近的且文本相关」的框；
+   文本相关性 = 互相包含或相似度 ≥ 0.7。不相关就不吸附，避免粘到旁边一句无关文字；
+5. 继续走原有的复核（局部/全屏差分 + 文字增删）。
+
+返回对象多两个字段：`source`（`ocr` / `vision` / `point`）与 `vision`（模型、耗时、是否吸附、原始输出）。
+模型不可用、超时或没给出坐标时，抛出的错误里会带模型原始输出，便于判断是模型问题还是目标描述问题。
+
 ## 坐标系与 DPI
 
 - 截图与输入都使用**物理像素**：daemon 启动时 `SetProcessDPIAware()`，避免 125%/150% 缩放下的坐标错位。
