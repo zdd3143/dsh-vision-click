@@ -522,8 +522,9 @@ function Do-Scroll([int]$x, [int]$y, [string]$direction, [int]$amount, [bool]$ho
   $notches = [Math]::Abs($amount)
   if ($notches -eq 0) { $notches = 3 }
   if ($notches -gt 40) { $notches = 40 }
-  $one = 120
-  if ($direction -eq 'up' -or $direction -eq 'left') { $one = -120 }
+  # Windows: positive wheel delta scrolls UP / left. "down" must be negative.
+  $one = -120
+  if ($direction -eq 'up' -or $direction -eq 'left') { $one = 120 }
   for ($i = 0; $i -lt $notches; $i++) {
     [VcInput]::Wheel($one, $horizontal)
     Start-Sleep -Milliseconds 30

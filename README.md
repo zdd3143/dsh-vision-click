@@ -180,6 +180,7 @@ dsh plugin --profile desktop add "link:C:/path/to/dsh-vision-click"
 | `visionTimeoutMs` | `30000` | 单次模型调用超时 |
 | `visionMaxWidth` | `1280` | 送模型前把窗口缩到这个宽度 |
 | `visionSnapRadius` | `0.08` | 把模型点吸附到 OCR 词框的半径（相对短边） |
+| `visionRetries` | `1` | 点了没反应时围绕模型点微调重试的次数 |
 
 ## 目录结构
 
@@ -238,6 +239,10 @@ config:
 ```
 
 `gui_click` 会在结果里标出 `source: "vision"` 与模型耗时/是否吸附成功。
+
+**默认关闭**：模型常驻约占 5~6 GB 显存，只有你显式打开才会加载；`ollama stop ui-tars:7b` 可立即卸载。
+实测一个 5 步复杂任务（含画布上的无文字图标）：仅 OCR 4/5，OCR+视觉 5/5，总耗时 8.7s → 10.6s——
+视觉只在那一步被调用，其余步骤零开销。
 部署步骤、实测精度与坑见 [docs/VISION.md](docs/VISION.md)。
 
 ## 已知边界

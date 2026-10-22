@@ -96,6 +96,8 @@ const CONFIG_FIELDS = {
   visionMaxWidth: { type: 'number', default: 1280 },
   /** Snap radius (0..1 of the crop) when matching the model point to an OCR word box. */
   visionSnapRadius: { type: 'number', default: 0.08 },
+  /** Extra clicks around the model point when the first one changes nothing (0 disables). */
+  visionRetries: { type: 'number', default: 1 },
 };
 
 export const Config = {
@@ -203,6 +205,8 @@ export function apply(ctx, config = {}) {
   if (!Number.isFinite(settings.visionTimeoutMs) || settings.visionTimeoutMs < 1000) settings.visionTimeoutMs = 30000;
   if (!Number.isFinite(settings.visionMaxWidth) || settings.visionMaxWidth < 320) settings.visionMaxWidth = 1280;
   if (!Number.isFinite(settings.visionSnapRadius) || settings.visionSnapRadius <= 0) settings.visionSnapRadius = 0.08;
+  if (!Number.isFinite(settings.visionRetries) || settings.visionRetries < 0) settings.visionRetries = 1;
+  if (settings.visionRetries > 3) settings.visionRetries = 3;
   settings.visionMode = settings.visionMode === 'always' ? 'always' : 'fallback';
   if (!Number.isFinite(settings.diffCellsX)) settings.diffCellsX = 24;
   if (!Number.isFinite(settings.diffCellsY)) settings.diffCellsY = 16;
@@ -1028,7 +1032,7 @@ export function apply(ctx, config = {}) {
 
   function visionPrompt(target) {
     return (
-      `Task: click the ${target}\n` +
+      `Task: click the center of the ${target}\n` +
       `Output the action as: Action: click(start_box='<|box_start|>(x,y)<|box_end|>')`
     );
   }
@@ -1748,6 +1752,7 @@ export function apply(ctx, config = {}) {
           clicked: { type: 'object', additionalProperties: true },
           target: { type: 'object', additionalProperties: true },
           source: { type: 'string' },
+          retried: { type: 'integer' },
           vision: { type: 'object', additionalProperties: true },
           candidates: { type: 'array', items: { type: 'object', additionalProperties: true } },
           verify: { type: 'object', additionalProperties: true },
@@ -1837,7 +1842,36 @@ export function apply(ctx, config = {}) {
 
       await doPointer(point, { button, count, holdMs, hover, exec });
 
-      const verified = await verify(cap, { textCheck, beforeLines, exec, ocrRect, clickPoint: point });
+      let verified = await verify(cap, { textCheck, beforeLines, exec, ocrRect, clickPoint: point });
+
+      // A vision point can land on the edge of a target (icons have no text to
+      // snap to). If the first click changed nothing, nudge around the model
+      // point before giving up — the verification still decides the winner.
+      let retried = 0;
+      if (!verified.changed && source === 'vision' && settings.visionRetries > 0) {
+        const offsets = [
+          [14, 10],
+          [-12, 12],
+          [0, -16],
+        ];
+        for (let i = 0; i < Math.min(settings.visionRetries, offsets.length); i += 1) {
+          const [dx, dy] = offsets[i];
+          const nudged = {
+            x: point.x + dx,
+            y: point.y + dy,
+            nx: (point.x + dx - cap.result.originX) / cap.result.width,
+            ny: (point.y + dy - cap.result.originY) / cap.result.height,
+          };
+          await doPointer(nudged, { button, count, holdMs, hover, exec });
+          verified = await verify(cap, { textCheck, beforeLines, exec, ocrRect, clickPoint: nudged });
+          retried = i + 1;
+          if (verified.changed) {
+            point = nudged;
+            break;
+          }
+        }
+      }
+
       const verdict = verdictText(verified, cap.result);
       audit({
         action: 'gui_click',
@@ -1882,6 +1916,7 @@ export function apply(ctx, config = {}) {
           ? { id: chosen.id, text: chosen.text, cx: Number(chosen.cx.toFixed(4)), cy: Number(chosen.cy.toFixed(4)) }
           : {},
         source,
+        retried,
         vision: vision
           ? { model: vision.model, ms: vision.ms, snapped: vision.snapped, snappedText: vision.snappedText, snapLines: vision.snapLines, snapError: vision.snapError, nearest: vision.nearest, raw: vision.raw }
           : {},
