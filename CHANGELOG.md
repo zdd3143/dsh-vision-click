@@ -3,6 +3,27 @@
 所有值得注意的变更都记在这里。格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## [1.1.1] - 2026-10-25
+
+### 修复
+
+- **客户端 bundle 的模块契约**：factory 里补上 `module` / `exports` 并返回 exports。
+  1.1.0 的 bundle 直接给未声明的 `exports` 赋值，在 DSH 0.2 的 client loader 下抛
+  `exports is not defined`——失败的是整个 Web 启动，不只是插件不显示。
+- **「屏幕控制」开关读不到状态**：DSH 0.2 的 `session.command()` 只结算 admission
+  （`{ ok, value: { matched } }`），不再回传命令输出，旧实现因此永远停在「屏幕控制 ?」。
+  现在改为读会话事件流里 `command/done` 的 `data.text`（宿主会把 `/vision` 的输出
+  原样记进这条事件），并订阅事件窗口；点击后由新事件刷新状态。
+- **去掉状态命令刷屏**：旧实现每次挂载都执行 `/vision status`，槽位重挂载时形成循环，
+  一次会话能刷出十几条。现在不再周期轮询；只在「历史里已有 token、而本页还不知道
+  宿主状态」时探测一次（宿主重启会把授权重置为 off，历史 token 却可能还留着 on，
+  需要这一次探测来纠正），其余情况只跟随事件。
+
+### 已知限制
+
+- 上面那次探测会在本次页面加载后首个打开的会话里留下一条 `/vision status` 输出。
+  宿主命令的输出只能经由会话日志回传，无法在不写日志的前提下读到。
+
 ## [1.1.0] - 2026-10-22
 
 ### 新增
@@ -44,5 +65,7 @@
 - OCR 对极小字号/艺术字/强背景图会漏读，需要用 `point` 兜底或 `pick` 指定候选。
 - 中文为直接注入字符，不走输入法候选流程。
 
+[1.1.1]: https://github.com/zdd3143/dsh-vision-click/releases/tag/v1.1.1
+[1.1.0]: https://github.com/zdd3143/dsh-vision-click/releases/tag/v1.1.0
 [1.0.1]: https://github.com/zdd3143/dsh-vision-click/releases/tag/v1.0.1
 [1.0.0]: https://github.com/zdd3143/dsh-vision-click/releases/tag/v1.0.0

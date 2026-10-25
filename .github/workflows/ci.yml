@@ -18,6 +18,9 @@ jobs:
       - name: Node syntax check
         run: node --check index.js
 
+      - name: Client bundle contract and consent flow
+        run: npm run test:client
+
       - name: Validate JSON manifests
         run: |
           node -e "for (const f of ['package.json','locale/zh.json','locale/en.json']) { JSON.parse(require('fs').readFileSync(f,'utf8')); console.log('ok', f) }"
