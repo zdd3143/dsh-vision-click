@@ -144,7 +144,19 @@ Windows OCR 在整屏 2560×1600 上很不稳定：小字会被合并成一行�
 
 ## 安装
 
-作为 DSH（DeepSeek Harness）插件，需要一个 profile：
+作为 DSH（DeepSeek Harness）插件，需要一个 profile。
+
+**普通安装**（不 clone 仓库，推荐）：
+
+```powershell
+# 预构建 tarball（release 附件，文件名不带版本号）
+dsh plugin --profile desktop add https://github.com/zdd3143/dsh-vision-click/releases/latest/download/dsh-vision-click.tgz
+
+# 或者直接从源码安装
+dsh plugin --profile desktop add https://github.com/zdd3143/dsh-vision-click
+```
+
+**本地开发**（改代码即时生效）：
 
 ```powershell
 git clone https://github.com/zdd3143/dsh-vision-click.git
